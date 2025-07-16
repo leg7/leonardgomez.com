@@ -1,0 +1,12 @@
+<template id="code-block">
+	<link rel="stylesheet" href="/styles.css">
+
+	<span class="filename">📁 <slot name="filename">Placeholder filename</slot></span>
+
+	<div class="tooltip">
+		<button type="button" class="copy-text">📋</button>
+		<span class="tooltip-text">Copy to clipboard</span>
+	</div>
+
+	<slot class="content" name="content">Some placeholder code...</slot>
+</template>

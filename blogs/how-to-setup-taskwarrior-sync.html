@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+	<head>
+		<link rel="stylesheet" href="/styles.css">
+
+		<script type="module" src="/web-components/code-block.js"></script>
+
+		<title>How to setup taskwarrior 3.0 sync</title>
+
+		<meta charset="UTF-8">
+		<meta name="author" content="Leonard Gomez">
+		<meta name="description" content="A tutorial on how to setup task syncing between devices for taskwarrior">
+		<meta name="keywords" content="taskwarrior, server, self-hosted, tutorial, productivity, setup, syncing, synchonization, todo">
+	</head>
+
+	<body>
+		<h1>How to setup taskwarrior 3.0 sync</h1>
+		<h4>Written: 2025-07-13, Last Updated: N/A</h4>
+		<hr>
+
+		<p>
+			It took me a while to figure out how to setup this thing because
+			there is almost no documentation on how to do it and the
+			configuration options are very misleading to say the least, so here
+			is a little tutorial on how to task syncing on taskwarrior 3.0.
+		</p>
+
+		<h2>Install the taskchampion service on your server</h2>
+		<p>
+			There are many ways to sync your tasks but the only one that didn't
+			seem to be horrible was taskchampion. If you want to learn more
+			about other ways to do this you can read the manual page with the
+			command <code>man task-sync</code>.
+			<br><br>
+			I'm using NixOS so this was pretty trivial for me. I made the
+			service accessible through a reverse proxy with nginx.
+			If you don't know what NixOS is you can just ignore this part and
+			find a wiki page on how to setup taskchampion on your distro.
+
+			<code-block>
+				<span slot="filename">System flake excerpt</span>
+				<span slot="content">
+services = {
+  taskchampion-sync-server = {
+    enable = true;
+    allowClientIds = [
+      "85038910-8fe2-480d-b6cb-6e7fabc1fa44" # Personal
+    ];
+  };
+  nginx = {
+    enable = true;
+    package = pkgs.nginxStable.override { openssl = pkgs.libressl; };
+    recommendedProxySettings = true;
+    recommendedTlsSettings = true;
+
+    virtualHosts."taskchampion.${domain}" = {
+      addSSL = true;
+      enableACME = true;
+      locations."/" = {
+    	proxyPass = "http://127.0.0.1:${toString config.services.taskchampion-sync-server.port}";
+      };
+    };
+  };
+};
+				</span>
+			</code-block>
+
+			We'll talk about what <code>allowedClientIds</code> means later.
+		</p>
+
+		<h2>Setting up your taskrc</h2>
+		<p>
+			Once we have the sync server up and running we need to configure
+			the clients that will connect to it. For example I had to configure
+			my laptop and desktop.
+		</p>
+
+		<h3>Knowing where your data is</h3>
+		<p>
+			By default taskwarrior will be an asshole and create the taskrc at
+			<code>~/.taskrc</code>, cluttering your home and giving you another
+			problem to deal with in your life, which you never should have had
+			to deal with in the first place.
+			<br><br>
+
+			Thankfully you can move it to <code>~/.config/task/taskrc</code>
+			without the usual 1-2 combo follow up problem of having to export
+			global vars like
+			<code>TASK_CONFIG_HOME="$XDG_CONFIG_HOME/task/taskrc"</code> and
+			<code>TASK_DATA_HOME="$XDG_DATA HOME/task"</code>.
+			<br><br>
+
+			Instead it goes for the unconventional approach of defining those
+			dreaded global vars in the config file directly like so:
+
+			<code-block>
+				<span slot="filename">~/.config/task/taskrc excerpt</span>
+				<span slot="content">
+data.location=~/.local/share/task
+hooks.location=~/.config/task/hooks
+				</span>
+			</code-block>
+
+			Anyways, venting aside, this is important because you will most
+			likely need to know where you task database is for the next part.
+			Taskwarrior stores tasks in an sqlite database, which is a file.
+			Even if you're not planning to sync your tasks you should know where
+			your database so that you can easily back it up, and easily not
+			delete it by accident like me when reinstalling your system 🥲.
+		</p>
+
+		<h3>Setting up sync</h3>
+		<p>
+			Next you have to configure the sync settings. Let me explain the non obvious settings.
+			<br><br>
+
+			<code>client_id</code>, unlike it's name indicates, is not unique
+			id for your device at all. It's a unique id for the task database
+			you are syncing, a better name for it would be
+			<code>database_id</code>.<br> This means you should set this to the
+			same id on all the devices you intend to sync the database too. You
+			can use the <code>uuidgen</code> command for this.
+			<br><br>
+
+			<code>encryption_secret</code> is the key used to encrypt the
+			database when sending it over the network. Don't share this with
+			anyone. You can generate it with whatever you want, I just used
+			bitwarden. I don't know what kind of encryption it's using so I
+			went with a long key just in case.
+
+			<code-block>
+				<span slot="filename">~/.config/task/taskrc excerpt</span>
+				<span slot="content">
+sync.server.url=https:\/\/taskchampion.leonardgomez.com
+sync.server.client_id=85038910-8fe2-480d-b6cb-6e7fabc1fa44
+sync.encryption_secret=4JQ!m3Irm8K1QvV^ATQVw0QEvCkbLX994hjoxQ&F1#jWleaiJ^hAA@%JV#ejk9Rdf39tCqnVbjZ8NF7@p9lz$T8Ni@QjxhvNwxG3kGqq*!ugRHe$a%C!FEaRS6T93Eku
+				</span>
+			</code-block>
+		</p>
+
+		<h2>Syncing your tasks</h2>
+		<p>
+			Once you have setup your taskrc with the same sync settings on all
+			your devices you can sync the database by running <code>task
+			sync</code> on your devices.
+			<br><br>
+
+			If you are successfully syncing your database with no error
+			messages but the tasks aren't syncing, you've probably already
+			synced your database with bad settings previously. I made the same
+			mistake because I thought client_id was a unique id to identify
+			your devices and I synced my db with those different ids. To fix
+			this I suggest backing up your database and then running <code>task
+			export > test && task import test</code> to clear the sync
+			metadata. After this syncing should work correctly again.
+		</p>
+	</body>
+</html>
